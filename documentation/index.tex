@@ -1,0 +1,22 @@
+\input{config/preamble}
+
+\newcommand\invisiblesection[1]{%
+\refstepcounter{section}%
+\addcontentsline{toc}{section}{\protect\numberline{\thesection}#1}%
+\sectionmark{#1}}
+
+\begin{document}
+	\input{parts/title}
+	\input{parts/task}
+	\input{parts/abstract}
+	\input{parts/contents}
+	\input{parts/abbreviations}
+	\input{parts/introduction}
+	\input{chapters/description}
+	\input{chapters/sourcemodel}
+	\input{chapters/software}
+	\input{chapters/experiment}
+	\input{parts/conclusion}
+	\input{parts/bibliography}
+	\input{parts/applications}
+\end{document}
