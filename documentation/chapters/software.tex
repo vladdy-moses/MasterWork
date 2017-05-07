@@ -188,18 +188,185 @@ TODO: дописать.
 \end{easylist}
 Дополнительно для каждой операции существует групповая операция, полностью дублирующая функциональность единичного метода.
 
-Для доступа к API следует удостовериться, что для конкретной развёртки РИАС ЖКХ развёрнут сервер сбора данных о платежах и настроена связь с ГИС ЖКХ.
+Для доступа к API следует удостовериться, что для конкретной площакди РИАС ЖКХ развёрнут сервер сбора данных о платежах и настроена связь с ГИС ЖКХ.
 При отсутствии развётки она может быть осуществлена отделом поддержки Исполнителя или Заказчиком самостоятельно.
 Далее необходимо передать права на раскрытие информации в ГИС ЖКХ для той информационной системы, с которой установлена связь в РИАС ЖКХ.
 Если система является не муниципальной или региональной, потребуется подтверждение права передачи информации от владельца ИС в ГИС ЖКХ.
 После этого следует получить ГУИД клиента API РИАС ЖКХ.
 Его необходимо будет прикреплять ко всем запросам API.
 
-Документация, ключи и конечные точки сервисов находятся в закрытом доступе.
+Документация, ключи и конечные точки веб-сервисов регистрации платежей находятся в закрытом доступе.
 
 На текущий момент существует ряд реализаций клиентов для сервера сбора данных о платежах: тестовый клиент от разработчиков сервера, две разработки команд компании <<АИС Город>>, как минимум одна реализация от сторонних разработчиков.
 
-TODO: Дополнить.
+Для ускорения регистрации платежей веб-сервисом было принято решение разделить факты оплат по нескольким слабо связанным друг с другом таблицам.
+В одной таблице (fgis.GISPaymentServiceLog) содержится входящая информация от веб-сервиса.
+Затем оттуда windows-служба обмена при обработке платежей при помощи специальных хранимых процедур обрабатывает и заносит данные в таблицы финансовой подсистемы РИАС ЖКХ (fin.PaymentOrder и fin.RecipientInfo).
+Обмен с ГИС ЖКХ происходит уже со вторым наоборот таблиц.
+Таким образом, удалось отделить фронт платёжного шлюза от обработки пришедших данных, тем самым повысив отказоустойчивость системы.
+
+\subsubsection{Описание модели данных}
+
+Описание сущностей представлено в таблице~\ref{tab:software-gisapi-entities}.
+
+\begin{myTable}
+\begin{longtable}[h]{|p{0.3\textwidth}|p{0.6\textwidth}|}
+	\caption{\label{tab:software-gisapi-entities}Сущности логической модели данных платёжного шлюза РИАС ЖКХ} \\
+	\hline
+		\thead{Название сущности} &
+		\thead{Описание} \\
+	\hline
+		\theadnum{1} & \theadnum{2} \\
+	\hline \endfirsthead
+	\hline
+		\theadnum{1} & \theadnum{2} \\
+	\hline \endhead
+		Лог платёжного шлюза & Информация, зарегистрированная платёжным шлюзом \\ \hline
+		Факт оплаты & Совершённый платёж за услуги ЖКХ \\ \hline
+		Платёжные реквизиты & Платёжные реквизиты получателя платежа \\ \hline
+\end{longtable}
+\end{myTable}
+
+Атрибуты сущности [Лог платёжного шлюза] представлены в таблице~\ref{tab:software-gisapi-log}.
+
+\begin{myTable}
+\begin{longtable}[h]{|p{0.4\textwidth}|p{0.2\textwidth}|p{0.3\textwidth}|}
+	\caption{\label{tab:software-gisapi-log}Атрибуты сущности [Лог платёжного шлюза] и поля таблицы \{fgis.GISPaymentServiceLog\}} \\
+	\hline
+		\thead{Название атрибута/поля} &
+		\thead{Тип} &
+		\thead{Описание} \\
+	\hline
+		\theadnum{1} & \theadnum{2} & \theadnum{3} \\
+	\hline \endfirsthead
+	\hline
+		\theadnum{1} & \theadnum{2} & \theadnum{3} \\
+	\hline \endhead
+	Идентификатор записи лога \par \{Id\} & Числовой \par \{int\} & - \\ \hline
+	Название метода \par \{MethodName\} & Текстовый \par \{nvarchar(50)\} & - \\ \hline
+	Идентификатор клиента API \par \{ApiClientId\} & Числовой \par \{int\} & - \\ \hline
+	Состояние записи \par \{StatusId\} & Числовой \par \{int\} & - \\ \hline
+	Идентификатор платежа \par \{PaymentOrderId\} & Числовой \par \{int\} & - \\ \hline
+	Идентификатор запроса ГИС ЖКХ \par \{GisRequestId\} & Числовой \par \{int\} & - \\ \hline
+	Подробности состояния \par \{StatusDescription\} & Текстовый \par \{nvarchar(max)\} & Заполняются при ошибке \\ \hline
+	ОГРН поставщика данных \par \{DataProviderOgrn\} & Текстовый \par \{nvarchar(max)\} & - \\ \hline
+	Номер платежа \par \{OrderNumber\} & Текстовый \par \{nvarchar(64)\} & Уникальный номер из биллинговой системы \\ \hline
+	Дата платежа \par \{OrderDate\} & Дата и время \par \{datetime2(0)\} & - \\ \hline
+	Величина платежа \par \{OrderAmount\} & Двойной числовой \par \{bigint\} & В копейках \\ \hline
+	Лицевой счёт \par \{OrderAccount\} & Текстовый \par \{nvarchar(max)\} & - \\ \hline
+	Период оплаты \par \{OrderPeriod\} & Дата \par \{date\} & Первый день месяца \\ \hline
+	Назначение платежа \par \{OrderPurpose\} & Текстовый \par \{nvarchar(1000)\} & - \\ \hline
+	Произвольный комментарий \par \{OrderComment\} & Текстовый \par \{nvarchar(210)\} & - \\ \hline
+	Наименование исполнителя \par \{ExecutorName\} & Текстовый \par \{nvarchar(200)\} & - \\ \hline
+	Исполнитель ИП \par \{ExecutorIsIP\} & Логический \par \{bit\} & - \\ \hline
+	ИНН исполнителя \par \{ExecutorInn\} & Текстовый \par \{nvarchar(50)\} & - \\ \hline
+	КПП исполнителя \par \{ExecutorKpp\} & Текстовый \par \{nvarchar(50)\} & Обязательно, если исполнитель не ИП \\ \hline
+	Наименование получателя \par \{RecipientName\} & Текстовый \par \{nvarchar(200)\} & - \\ \hline
+	ИНН получателя \par \{RecipientInn\} & Текстовый \par \{nvarchar(50)\} & - \\ \hline
+	БИК получателя \par \{RecipientBik\} & Текстовый \par \{nvarchar(50)\} & - \\ \hline
+	Банк получателя \par \{RecipientBank\} & Текстовый \par \{nvarchar(200)\} & - \\ \hline
+	Расчётный счёт получателя \par \{RecipientAccount\} & Текстовый \par \{nvarchar(50)\} & Только цифры \\ \hline
+	Наименование плательщика \par \{PayerName\} & Текстовый \par \{nvarchar(160)\} & - \\ \hline
+	Плательщик ЮЛ \par \{PayerIsLegal\} & Логический \par \{bit\} & - \\ \hline
+	ОГРН владельца ЛС \par \{AccountOwnerOrganizationOgrn\} & Текстовый \par \{nvarchar(max)\} & Заполняется только для метода SendOrderInfo \\ \hline
+	ИД ЖКУ ГИС ЖКХ \par \{AccountGisServiceId\} & Текстовый \par \{nvarchar(max)\} & - \\ \hline
+	Дата аннулирования платежа \par \{CancellationDate\} & Дата и время \par \{datetime2(0)\} & - \\ \hline
+	Причина аннулирования платежа \par \{CancellationComment\} & Текстовый \par \{nvarchar(max)\} & Обязательно, если указана дата аннулирования \\ \hline
+	Дата и время создания записи \par \{Created\} & Дата и время \par \{datetimeoffset(2)\} & Включает часовой пояс \\ \hline
+	Дата и время обновления записи \par \{Updated\} & Дата и время \par \{datetimeoffset(2)\} & Включает часовой пояс \\ \hline
+\end{longtable}
+\end{myTable}
+
+Атрибут <<Название метода>> может содержать следующие значения:
+\begin{easylist}
+& SendOrderInfo --- размещение платежа в собственную кассу;
+& SendOrderInfoAgent --- размещение платежа через платёжного агента;
+& SendOrderCancellation --- аннулирование платежа.
+\end{easylist}
+
+Атрибут <<Состояние записи>> может содержать следующие значения:
+\begin{easylist}
+& new -- ожидает обработки;
+& success -- обработан успешно;
+& error.service -- ошибка веб-серивса;
+& error.rias -- ошибка РИАС ЖКХ;
+& error.gis -- ошибка в ГИС ЖКХ;
+& wait.rias -- ожидает отправки в ГИС ЖКХ;
+& wait.gis -- ожидает ответа от ГИС ЖКХ;
+& overtime -- истекло время обработки.
+\end{easylist}
+
+Атрибуты сущности [Факт оплаты] представлены в таблице~\ref{tab:software-gisapi-payorder}.
+
+\begin{myTable}
+\begin{longtable}[h]{|p{0.4\textwidth}|p{0.2\textwidth}|p{0.3\textwidth}|}
+	\caption{\label{tab:software-gisapi-payorder}Атрибуты сущности [Факт оплаты] и поля таблицы \{fin.PaymentOrder\}} \\
+	\hline
+		\thead{Название атрибута/поля} &
+		\thead{Тип} &
+		\thead{Описание} \\
+	\hline
+		\theadnum{1} & \theadnum{2} & \theadnum{3} \\
+	\hline \endfirsthead
+	\hline
+		\theadnum{1} & \theadnum{2} & \theadnum{3} \\
+	\hline \endhead
+	Идентификатор оплаты \par \{Id\} & Числовой \par \{int\} & - \\ \hline
+	Идентификатор платёжных реквизитов \par \{RecipientInfoId\} & Числовой \par \{int\} & Ссылка на сущность [Платёжные реквизиты] \\ \hline
+	Идентификатор поставщика данных \par \{DataProviderOrganizationId\} & Числовой \par \{int\} & Ссылка на базовый справочник РИАС ЖКХ \\ \hline
+	Номер платежа \par \{OrderNumber\} & Текстовый \par \{nvarchar(64)\} & Уникальный номер из биллинговой системы \\ \hline
+	Дата платежа \par \{OrderDate\} & Дата и время \par \{datetimeoffset(0)\} & С часовым поясом \\ \hline
+	Период оплаты \par \{OrderPeriod\} & Дата \par \{date\} & Первый день месяца \\ \hline
+	Величина платежа \par \{OrderAmount\} & Двойной числовой \par \{bigint\} & В копейках \\ \hline
+	Назначение платежа \par \{OrderPurpose\} & Текстовый \par \{nvarchar(1000)\} & - \\ \hline
+	Произвольный комментарий \par \{OrderComment\} & Текстовый \par \{nvarchar(210)\} & - \\ \hline
+	ИД ЖКУ ГИС ЖКХ \par \{AccountGisServiceId\} & Текстовый \par \{nvarchar(50)\} & - \\ \hline
+	Лицевой счёт \par \{AccountNumber\} & Текстовый \par \{nvarchar(50)\} & - \\ \hline
+	Наименование исполнителя \par \{ExecutorName\} & Текстовый \par \{nvarchar(200)\} & - \\ \hline
+	Исполнитель ИП \par \{ExecutorIsIP\} & Логический \par \{bit\} & - \\ \hline
+	ИНН исполнителя \par \{ExecutorInn\} & Текстовый \par \{nvarchar(50)\} & - \\ \hline
+	КПП исполнителя \par \{ExecutorKpp\} & Текстовый \par \{nvarchar(50)\} & Обязательно, если исполнитель не ИП \\ \hline
+	Наименование плательщика \par \{PayerName\} & Текстовый \par \{nvarchar(160)\} & - \\ \hline
+	Плательщик ЮЛ \par \{PayerIsLegal\} & Логический \par \{bit\} & - \\ \hline
+	Платёж отменён \par \{IsCancelled\} & Логический \par \{bit\} & - \\ \hline
+	Дата аннулирования платежа \par \{CancellationDate\} & Дата и время \par \{datetime2(0)\} & - \\ \hline
+	Причина аннулирования платежа \par \{CancellationComment\} & Текстовый \par \{nvarchar(max)\} & Обязательно, если указана дата аннулирования \\ \hline
+	Транспортный ГУИД ГИС ЖКХ \par \{GisTransportGuid\} & ГУИД \par \{uniqueidentifier\} & - \\ \hline
+	Номер платежа в ГИС ЖКХ \par \{GisOrderNumber\} & Текстовый \par \{nvarchar(50)\} & - \\ \hline
+	ГУИД платежа в ГИС ЖКХ \par \{GisOrderGuid\} & ГУИД \par \{uniqueidentifier\} & - \\ \hline
+	Платёж отменён в ГИС ЖКХ \par \{GisIsCancelled\} & Логический \par \{bit\} & - \\ \hline
+	Дата и время создания записи \par \{Created\} & Дата и время \par \{datetimeoffset(2)\} & Включает часовой пояс \\ \hline
+	Дата и время обновления записи \par \{Updated\} & Дата и время \par \{datetimeoffset(2)\} & Включает часовой пояс \\ \hline
+\end{longtable}
+\end{myTable}
+
+Атрибуты сущности [Платёжные реквизиты] представлены в таблице~\ref{tab:software-gisapi-recipientinfo}.
+
+\begin{myTable}
+\begin{longtable}[h]{|p{0.4\textwidth}|p{0.2\textwidth}|p{0.3\textwidth}|}
+	\caption{\label{tab:software-gisapi-recipientinfo}Атрибуты сущности [Платёжные реквизиты] и поля таблицы \{fin.RecipientInfo\}} \\
+	\hline
+		\thead{Название атрибута/поля} &
+		\thead{Тип} &
+		\thead{Описание} \\
+	\hline
+		\theadnum{1} & \theadnum{2} & \theadnum{3} \\
+	\hline \endfirsthead
+	\hline
+		\theadnum{1} & \theadnum{2} & \theadnum{3} \\
+	\hline \endhead
+	Идентификатор платёжных реквизитов \par \{Id\} & Числовой \par \{int\} & - \\ \hline
+	БИК получателя \par \{RecipientBik\} & Текстовый \par \{nvarchar(9)\} & - \\ \hline
+	Банк получателя \par \{RecipientBank\} & Текстовый \par \{nvarchar(255)\} & - \\ \hline
+	Наименование получателя \par \{RecipientName\} & Текстовый \par \{nvarchar(255)\} & - \\ \hline
+	ИНН получателя \par \{RecipientInn\} & Текстовый \par \{nvarchar(20)\} & - \\ \hline
+	КПП получателя \par \{RecipientKpp\} & Текстовый \par \{nvarchar(9)\} & - \\ \hline
+	Расчётный счёт получателя \par \{RecipientAccount\} & Текстовый \par \{nvarchar(20)\} & Только цифры \\ \hline
+	Корреспондентский счёт \par \{CorrespondentBankAccountNumber\} & Текстовый \par \{nvarchar(20)\} & Только цифры \\ \hline
+	Дата и время создания записи \par \{Created\} & Дата и время \par \{datetimeoffset(2)\} & Включает часовой пояс \\ \hline
+	Дата и время обновления записи \par \{Updated\} & Дата и время \par \{datetimeoffset(2)\} & Включает часовой пояс \\ \hline
+\end{longtable}
+\end{myTable}
 
 \subsection{Модуль интеграции РИАС ЖКХ с <<АИС Город. Система начислений>>}
 
