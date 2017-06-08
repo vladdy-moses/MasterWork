@@ -1,5 +1,570 @@
 \ESKDappendix{обязательное}{Текст программы}
 
-Тут должен быть код, но он стесняется и не выйдет.
+\subsubsection*{Пример обвязки над клиентом веб-сервиса ГИС ЖКХ}
+\begin{lstlisting}
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using AIS.HM.Integration.GIS.Core.Wrapper;
+using AIS.HM.Integration.GIS.Services.DeviceMetering;
+using AIS.HM.Integration.GIS.Core.Utils;
 
-Простите :(
+namespace AIS.HM.Integration.GIS.Core.ServiceProviders
+{
+    public sealed class DeviceMeteringServiceProvider : ServiceProvider
+    {
+        private DeviceMeteringPortTypesAsyncClient client;
+
+        public DeviceMeteringServiceProvider()
+        {
+            client = Core.Makers.ClientFactory<DeviceMeteringPortTypesAsyncClient, DeviceMeteringPortTypesAsync>.Get(this);
+        }
+        private RequestHeader GenerateRequestHeader(Guid orgPpaGuid, Guid? messageGuid)
+        {
+            return new RequestHeader()
+            {
+                MessageGUID = (messageGuid ?? Guid.NewGuid()).ToLowerString(),
+                Date = DateTime.Now,
+                IsOperatorSignatureSpecified = true,
+                IsOperatorSignature = true,
+                ItemElementName = ItemChoiceType1.orgPPAGUID,
+                Item = orgPpaGuid.ToLowerString()
+            };
+        }
+
+        #region api methods
+        public AckRequest importMeteringDeviceValues(importMeteringDeviceValuesRequest request, Guid orgPpaGuid, Guid? messageGuid = null)
+        {
+            OnApiCalling("importMeteringDeviceValues");
+            try
+            {
+                if (ConfigurationBase.Current.IsProduction)
+                {
+                    var xmlRequest = Core.Utils.XmlSigner.Form(request);
+                    xmlRequest = Core.Utils.XmlSigner.Sign(xmlRequest);
+                    request = XmlHelper.Deserialize<importMeteringDeviceValuesRequest>(xmlRequest);
+                }
+
+                AckRequest result = null;
+                client.importMeteringDeviceValues(GenerateRequestHeader(orgPpaGuid, messageGuid), request, out result);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                OnApiException(ex);
+                throw new GisServiceException(ex);
+            }
+        }
+
+        public AckRequest exportMeteringDeviceHistory(exportMeteringDeviceHistoryRequest request, Guid orgPpaGuid, Guid? messageGuid = null)
+        {
+            OnApiCalling("exportMeteringDeviceHistory");
+            try
+            {
+                if (ConfigurationBase.Current.IsProduction)
+                {
+                    var xmlRequest = Core.Utils.XmlSigner.Form(request);
+                    xmlRequest = Core.Utils.XmlSigner.Sign(xmlRequest);
+                    request = XmlHelper.Deserialize<exportMeteringDeviceHistoryRequest>(xmlRequest);
+                }
+
+                AckRequest result = null;
+                client.exportMeteringDeviceHistory(GenerateRequestHeader(orgPpaGuid, messageGuid), request, out result);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                OnApiException(ex);
+                throw new GisServiceException(ex);
+            }
+        }
+
+        public getStateResult getState(getStateRequest request, Guid orgPpaGuid)
+        {
+            OnApiCalling("getState");
+            try
+            {
+                getStateResult result = null;
+                client.getState(GenerateRequestHeader(orgPpaGuid, null), request, out result);
+                result.Signature = null;
+                return result;
+            }
+            catch (Exception ex)
+            {
+                OnApiException(ex);
+                throw new GisServiceException(ex);
+            }
+        }
+        #endregion
+    }
+}
+\end{lstlisting}
+
+\subsubsection*{Обмен с файлами в ГИС ЖКХ}
+\begin{lstlisting}
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading.Tasks;
+using System.Web;
+
+namespace AIS.HM.Integration.GIS.Core.Utils
+{
+    /// <summary>
+    /// Абстрактный класс, реализующий обмен файлами между ГИС ЖКХ и файловой системой.
+    /// </summary>
+    public abstract class FileServiceBase
+    {
+        private const int MAX_SIZE_FILE_PART = 5242880; //максимальный размер файла, когда его можно загружать и выгружать на ГИС ЖКХ одной частью
+
+        #region Upload
+        public FileDescriptorGis UploadToGis(string fileName, FileStorageType storageType, string orgPpaGuid, out string hash, string fileDisplayName = null)
+        {
+            try
+            {
+                var fileInfo = new FileInfo(fileName);
+                if (fileInfo.Length > MAX_SIZE_FILE_PART)
+                    return UploadToGisBigFile(fileName, fileDisplayName, storageType, orgPpaGuid, fileInfo, out hash);
+                return UploadToGisSmallFile(fileName, fileDisplayName, storageType, orgPpaGuid, fileInfo, out hash);
+            }
+            catch (WebException ex)
+            {
+                if (ex.Status == WebExceptionStatus.ProtocolError)
+                {
+                    var response = (HttpWebResponse)ex.Response;
+                    if (response == null)
+                        throw new Exception("Ошибка получения файла от ГИС ЖКХ.", ex);
+                    var headerText = response.Headers["X-Upload-Error"];
+                    throw new Exception(headerText ?? "Ошибка получения файла от ГИС ЖКХ.", ex);
+                }
+                throw new Exception("Ошибка получения файла от ГИС ЖКХ.", ex);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Ошибка получения файла от ГИС ЖКХ.", ex);
+            }
+        }
+
+        private FileDescriptorGis UploadToGisSmallFile(string fileName, string fileDisplayName, FileStorageType storageType, string orgPpaGuid, FileInfo fileInfo, out string hash)
+        {
+            var wp = $"{ConfigurationBase.Current.GisFileEndpoint}{storageType.ToString()}/";
+            var wc = new SecureWebClient();
+            hash = _getGostHash(fileName);
+
+            wc.Headers.Add("Content-MD5", _Md5toBase64(_getMd5(fileName)));
+            wc.Headers.Add("X-Upload-OrgPPAGUID", orgPpaGuid);
+            wc.Headers.Add("X-Upload-Filename", HttpUtility.UrlEncode(fileDisplayName ?? fileInfo.Name));
+
+            wc.UploadFile(wp, "PUT", fileName);
+            return new FileDescriptorGis { Guid = wc.ResponseHeaders["X-Upload-UploadID"], Storage = storageType };
+        }
+
+        private FileDescriptorGis UploadToGisBigFile(string fileName, string fileDisplayName, FileStorageType storageType, string orgPpaGuid, FileInfo fileInfo, out string hash)
+        {
+            var wp = $"{ConfigurationBase.Current.GisFileEndpoint}{storageType.ToString()}/";
+            var wc = new SecureWebClient();
+            hash = _getGostHash(fileName);
+            int fileOffset = 0,
+                fileParts = (fileInfo.Length / MAX_SIZE_FILE_PART) % 10 == 0 ? (int)(fileInfo.Length / MAX_SIZE_FILE_PART) : (int)(fileInfo.Length / MAX_SIZE_FILE_PART) + 1;
+
+            #region Инициализация сессии
+            /*
+                Запрос на инициализацию сессии
+                POST /ext-bus-file-store-service/rest/<upload-context>/?upload HTTP/1.1 
+                Host: host
+                Date: date
+                X-Upload-Dataprovider: GUID
+                X-Upload-Filename: filename
+                X-Upload-Length: length
+                X-Upload-Part-Count: number
+            */
+            wc.Headers.Add("X-Upload-OrgPPAGUID", orgPpaGuid);
+            wc.Headers.Add("X-Upload-Filename", HttpUtility.UrlEncode(fileDisplayName ?? fileInfo.Name));
+            wc.Headers.Add("X-Upload-Length", fileInfo.Length.ToString());
+            wc.Headers.Add("X-Upload-Part-Count", fileParts.ToString());
+
+            wc.UploadString(wp + "?upload", string.Empty);
+            var uploadID = wc.ResponseHeaders["X-Upload-UploadID"];
+            #endregion
+
+            #region Загрузка части файла
+            /*
+                PUT /ext-bus-file-store-service/rest/<upload-context>/<uploadID> HTTP/1.1
+                Host: host
+                Date: date
+                Content-Length: size
+                Content-MD5: hash
+                X-Upload-Partnumber: partnumber
+            */
+            FileStream fs = new FileStream(fileName, FileMode.Open);
+            byte[] data = new byte[fileInfo.Length];
+            fs.Read(data, 0, data.Length);
+
+            for (int i = 0; i < fileParts; i++)
+            {
+                int dataItemLength = data.Length - fileOffset >= MAX_SIZE_FILE_PART ? MAX_SIZE_FILE_PART : data.Length - fileOffset;
+                byte[] dataItem = new byte[dataItemLength];
+
+                Array.Copy(data, fileOffset, dataItem, 0, dataItemLength);
+
+                wc = new SecureWebClient();
+
+                wc.Headers.Add("X-Upload-OrgPPAGUID", orgPpaGuid);
+                wc.Headers.Add("X-Upload-Partnumber", (i + 1).ToString());
+                wc.Headers.Add("Content-MD5", _Md5toBase64(_getMd5byByte(dataItem)));
+                wc.Headers.Add("Content-Type", "application/x-www-form-urlencoded");
+
+                wc.UploadData(string.Format("{0}{1}", wp, uploadID), "PUT", dataItem);
+                fileOffset += dataItem.Length;
+            }
+            fs.Close();
+            #endregion
+
+            #region Завершение сессии загрузки
+            /*
+                POST  /ext-bus-file-store-service/rest/<upload-context>/<uploadID>?completed HTTP/1.1
+                Host: host
+                Date: date
+            */
+            wc = new SecureWebClient();
+            wc.Headers.Add("X-Upload-OrgPPAGUID", orgPpaGuid);
+            wc.UploadString(string.Format("{0}{1}?completed", wp, uploadID), string.Empty);
+            #endregion
+
+            return new FileDescriptorGis { Guid = uploadID, Storage = storageType };
+        }
+
+        protected string _downloadFromRias(string url)
+        {
+            // костыль для localhost
+            if (url.StartsWith("/"))
+                url = ConfigurationBase.Current.HmWebPath + url.Substring(1);
+
+            // создание временного файла
+            var tempFile = Path.GetTempFileName();
+
+            // загрузка во временный файл
+            using (SecureWebClient client = new SecureWebClient())
+            {
+                client.DownloadFile(url, tempFile);
+            }
+
+            return tempFile;
+        }
+        #endregion
+        #region Download
+
+        public string DownloadFromGis(FileDescriptorGis gisFile, string orgPpaGuid, out string gisFileName)
+        {
+            try
+            {
+                // variables initialize
+                var wp = string.Format("{0}{1}/{2}?getfile", ConfigurationBase.Current.GisFileEndpoint, gisFile.Storage.ToString(), gisFile.Guid);
+                var wc = new ExWebClient();
+
+                // get info of downloaded file
+                wc.Headers.Add("X-Upload-OrgPPAGUID", orgPpaGuid);
+                wc.Method = "HEAD";
+                wc.DownloadString(wp);
+
+                // handle info
+                var fileLength = Convert.ToInt32(wc.ResponseHeaders["X-Upload-Length"]);
+                gisFileName = MimeKit.Utils.Rfc2047.DecodeText(Encoding.UTF8.GetBytes(wc.ResponseHeaders["X-Upload-Filename"]));
+                string extension = Path.GetExtension(gisFileName);
+
+                if (fileLength > MAX_SIZE_FILE_PART)
+                {
+                    var completedPartsCount = wc.ResponseHeaders["X-Upload-Completed-Parts"].Split(',').Count();
+                    return DownloadBigFileFromGis(orgPpaGuid, wp, fileLength, completedPartsCount, extension);
+                }
+                return DownloadSmallFileFromGis(orgPpaGuid, wp, extension);
+            }
+            catch (WebException ex)
+            {
+                if (ex.Status == WebExceptionStatus.ProtocolError)
+                {
+                    var response = (HttpWebResponse)ex.Response;
+                    if (response == null)
+                        throw new Exception("Ошибка загрузки файла в РИАС ЖКХ.");
+                    var headerText = response.Headers["X-Upload-Error"];
+                    throw new Exception(headerText ?? "Ошибка загрузки файла в РИАС ЖКХ.");
+                }
+                throw new Exception("Ошибка загрузки файла в РИАС ЖКХ.", ex);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Ошибка загрузки файла в РИАС ЖКХ.", ex);
+            }
+        }
+
+        private string DownloadSmallFileFromGis(string orgPpaGuid, string serviceAddress, string extension)
+        {
+            string tempFileName = GenerateTempFile(extension);
+
+            // download file into temporary firectory
+            var wc = new ExWebClient();
+            wc.Method = "GET";
+            wc.Headers.Add("X-Upload-OrgPPAGUID", orgPpaGuid);
+            wc.DownloadFile(serviceAddress, tempFileName);
+
+            return tempFileName;
+        }
+
+        /// <summary>
+        /// Генерирует уникальное имя файла
+        /// </summary>
+        /// <param name="extension">Требуемое расширение</param>
+        /// <returns></returns>
+        private static string GenerateTempFile(string extension)
+        {
+            var path = Path.GetTempPath();
+            var tempFileName = Guid.NewGuid().ToString() + extension;
+            tempFileName = Path.Combine(path, tempFileName);
+            return tempFileName;
+        }
+
+        private string DownloadBigFileFromGis(string orgPpaGuid, string serviceAddress, int fileLength, int completedPartsCount, string extension)
+        {
+            string tempFileName = GenerateTempFile(extension);
+            byte[] data = new byte[fileLength];
+            int offset = 0;
+
+            for (int i = 0; i < completedPartsCount; i++)
+            {
+                int currentPartLength = fileLength - offset > MAX_SIZE_FILE_PART ? MAX_SIZE_FILE_PART : fileLength - offset;
+
+                var wc = new ExWebClient();
+                wc.Method = "GET";
+                wc.Headers.Add("X-Upload-OrgPPAGUID", orgPpaGuid);
+                wc.RangeFrom = offset;
+                wc.RangeTo = offset + currentPartLength - 1;
+                var dataItem = wc.DownloadData(serviceAddress);
+
+                Array.Copy(dataItem, 0, data, offset, currentPartLength);
+
+                offset += currentPartLength;
+            }
+            File.WriteAllBytes(tempFileName, data);
+
+            return tempFileName;
+        }
+
+        #endregion
+        #region Utils
+        /// <summary>
+        /// Получает MD5-сумму файла.
+        /// </summary>
+        /// <param name="fileName">Полное и абсолютное имя файла.</param>
+        /// <returns></returns>
+        private static string _getMd5(string fileName)
+        {
+            using (var md5 = MD5.Create())
+            {
+                using (var stream = File.OpenRead(fileName))
+                {
+                    return BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLower();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Получает MD5-сумму набора byte данных
+        /// </summary>
+        /// <param name="dataArray">Набор данных</param>
+        /// <returns></returns>
+        private static string _getMd5byByte(byte[] dataArray)
+        {
+            using (var md5 = MD5.Create())
+            {
+                using (var stream = new MemoryStream(dataArray))
+                {
+                    return BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLower();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Преобразует MD5-сумму к формату Base64.
+        /// </summary>
+        /// <param name="hexString">Исходная MD5-строка.</param>
+        /// <returns></returns>
+        private static string _Md5toBase64(string hexString)
+        {
+            byte[] buffer = new byte[hexString.Length / 2];
+            for (int i = 0; i < hexString.Length; i++)
+            {
+                buffer[i / 2] = Convert.ToByte(Convert.ToInt32(hexString.Substring(i, 2), 16));
+                i += 1;
+            }
+            string res = Convert.ToBase64String(buffer);
+            return res;
+        }
+
+        /// <summary>
+        /// Получение хеш-суммы файла согласно ГОСТ 34.11-94.
+        /// </summary>
+        /// <param name="fileName">Полное и абсолютное имя файла.</param>
+        /// <returns></returns>
+        private static string _getGostHash(string fileName)
+        {
+            var asseblyFile = System.Reflection.Assembly.GetExecutingAssembly().Location;
+            var cpverifyPath = Path.GetDirectoryName(asseblyFile) + @"\Libraries\";
+            var cpverifyFile = cpverifyPath + @"cpverify.exe";
+            var arguments = string.Format("-mk \"{0}\"", fileName);
+
+            Process p = new Process();
+            p.StartInfo.UseShellExecute = false;
+            p.StartInfo.RedirectStandardOutput = true;
+            p.StartInfo.FileName = cpverifyFile;
+            p.StartInfo.Arguments = arguments;
+            p.Start();
+            string output = p.StandardOutput.ReadLine();
+            p.WaitForExit();
+
+            if (output.Length != 64)
+                throw new Exception(string.Format("Wrong hash from cpverify.exe\nFileName: {0}\nArgs: {1}\nOutput: {2}", cpverifyFile, arguments, output));
+
+            string result = string.Empty;
+            for (int i = 1; i < 64; i += 2) // 1, 3, 5, ..., 63
+            {
+                result += output[i];
+                result += output[i - 1];
+            }
+            return result.ToLower();
+        }
+        #endregion
+        #region models
+        protected class JsonResponse
+        {
+            public dynamic data { get; set; }
+            public string message { get; set; }
+            public bool success { get; set; }
+        }
+        /// <summary>
+        /// Структура, описывающая файл в ГИС ЖКХ
+        /// </summary>
+        public struct FileDescriptorGis
+        {
+            public string Guid { set; get; }
+            public FileStorageType Storage { set; get; }
+        }
+        #endregion
+    }
+
+    /// <summary>
+    /// Тип хранилища ГИС ЖКХ.
+    /// </summary>
+    public enum FileStorageType { homemanagement, rki, voting, inspection, informing, bills, licenses, agreements, nsi }
+
+    /// <summary>
+    /// Структура, описывающая файл в РИАС ЖКХ.
+    /// </summary>
+    public struct FileDescriptorRias
+    {
+        public string FileGroup { set; get; }
+        public int? OrganizationId { set; get; }
+        public string FileName { set; get; }
+    }
+
+    /// <summary>
+    /// Хитрый класс для описания файлов, пришедших из vw_GISFileCompare.
+    /// </summary>
+    public class FileEntityDescription
+    {
+        public Guid Guid { get; set; }
+        public FileStorageType Storage { get; set; }
+        public string FileGroup { set; get; }
+        public int? OrganizationId { set; get; }
+        public string FileName { set; get; }
+        public string TableName { get; set; }
+        public string SchemaName { get; set; }
+        public int LocalId { get; set; }
+        public FileEntityDescription(string fileGroup, int? organizationId, string fileName, string tableName, string schemaName, int localId)
+        {
+            FileGroup = fileGroup;
+            OrganizationId = organizationId;
+            FileName = fileName;
+            TableName = tableName;
+            SchemaName = schemaName;
+            LocalId = localId;
+        }
+        public FileEntityDescription() { }
+    }
+}
+\end{lstlisting}
+
+\subsubsection*{Обработка новых платежей от ПШ РИАС ЖКХ}
+\begin{lstlisting}
+using AIS.HM.Integration.GIS.Core.Utils;
+using AIS.HM.Integration.GIS.Production.Classes;
+using AIS.HM.Integration.GIS.Services.Payment;
+using AIS.HM.Model;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace AIS.HM.Integration.GIS.Production.Activities.Impl
+{
+    /// <summary>
+    /// Обрабатывает запросы от платёжного сервиса.
+    /// </summary>
+    public class PaymentProcessActivity : IActivity
+    {
+        public void Run()
+        {
+            _ProcessOvertimed();
+            _ProcessNew();
+        }
+
+        public void Run(object obj)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void _ProcessOvertimed()
+        {
+            try
+            {
+                using (var db = new DB())
+                {
+                    db.Database.CommandTimeout = 3600;
+                    db.GISPaymentServiceLog_processOvertime();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Exception(ex, "Ошибка обработки просроченных платежей");
+            }
+        }
+
+        private void _ProcessNew()
+        {
+            try
+            {
+                using (var db = new DB())
+                {
+                    db.Database.CommandTimeout = 3600;
+                    db.GISPaymentServiceLog_processInfo();
+                    db.GISPaymentServiceLog_processInfoAgent();
+                    db.GISPaymentServiceLog_processCancellation();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Exception(ex, "Ошибка обработки новых платежей");
+            }
+        }        
+    }
+}
+\end{lstlisting}
