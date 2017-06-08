@@ -1,0 +1,273 @@
+\ESKDappendix{обязательное}{SQL-команды генерации данных для вычислительных экспериментов}
+
+В текущем приложении приводится код на языке T-SQL, при помощи которого были сгенерированы тестовые наборы данных для проведения вычислительного эксперимента из п.~\ref{ext-echange}.
+
+\subsubsection*{Набор данных $D_1$}
+\begin{lstlisting}
+-- Создание таблицы
+IF 1=1 BEGIN
+	CREATE TABLE sandbox.MoiseevTestSml (
+		[TestSmlId] INT PRIMARY KEY IDENTITY(1,1),
+		[ItemId] INT NOT NULL INDEX IX_TestSml_ItemId(TestSmlId) ,
+		[Date] DATETIME2 NOT NULL,
+		[Value] DECIMAL(18,4) NOT NULL
+	)
+END
+
+-- Заполнение данными
+IF 1=1 BEGIN
+	CREATE TABLE #dates (d DATETIME2)
+	CREATE TABLE #ids (i INT)
+
+	;WITH cte AS (
+		SELECT CAST('2017-01-01 00:00' AS DATETIME2) AS dt
+		UNION ALL
+		SELECT DATEADD(MINUTE, 1, dt)
+		FROM cte s
+		WHERE DATEADD(MINUTE, 1, dt) <= '2017-06-01 00:00')
+	INSERT INTO #dates (d)
+	SELECT s.dt
+		FROM cte s
+	OPTION (MAXRECURSION 0)
+
+	;WITH cte AS (
+		SELECT 1 AS dt
+		UNION ALL
+		SELECT 1+dt
+		FROM cte s
+		WHERE 1+dt <= 10)
+	INSERT INTO #ids (i)
+	SELECT s.dt
+		FROM cte s
+	OPTION (MAXRECURSION 0)
+
+	INSERT INTO sandbox.MoiseevTestSml (ItemId, Date, Value)
+	SELECT i.i, d.d, CAST(CAST(NEWID() AS VARBINARY) AS INT)
+	FROM #dates d
+		CROSS JOIN #ids i
+
+	DROP TABLE #dates
+	DROP TABLE #ids
+END
+
+-- Проверка числа записей
+SELECT COUNT(*) FROM sandbox.MoiseevTestSml WITH(NOLOCK)
+SELECT TOP 100 * FROM sandbox.MoiseevTestSml
+
+-- Удаление таблицы
+IF 1=0 BEGIN
+	TRUNCATE TABLE sandbox.MoiseevTestSml
+	DROP TABLE sandbox.MoiseevTestSml
+END
+\end{lstlisting}
+
+\subsubsection*{Набор данных $D_2$}
+\begin{lstlisting}
+-- Создание таблицы
+IF 1=1 BEGIN
+	CREATE TABLE sandbox.MoiseevTestLarge (
+		[TestLargeId] INT PRIMARY KEY IDENTITY(1,1),
+		[Date] DATETIME2 NOT NULL,
+		[Value01] DECIMAL(18,4) NOT NULL,
+		[Value02] DECIMAL(18,4) NOT NULL,
+		[Value03] DECIMAL(18,4) NOT NULL,
+		[Value04] DECIMAL(18,4) NOT NULL,
+		[Value05] NVARCHAR(MAX) NOT NULL,
+		[Value06] NVARCHAR(MAX) NOT NULL,
+		[Value07] NVARCHAR(MAX) NOT NULL,
+		[Value08] NVARCHAR(MAX) NOT NULL,
+		[Value09] UNIQUEIDENTIFIER NOT NULL,
+		[Value10] UNIQUEIDENTIFIER NOT NULL,
+		[Value11] INT NOT NULL,
+		[Value12] INT NOT NULL,
+		[Value13] INT NOT NULL,
+		[Value14] INT NOT NULL
+	)
+END
+
+-- Заполнение данными
+IF 1=1 BEGIN
+	CREATE TABLE #dates (d DATETIME2)
+	CREATE TABLE #ids (i INT)
+
+	;WITH cte AS (
+		SELECT CAST('2017-01-01 00:00' AS DATETIME2) AS dt
+		UNION ALL
+		SELECT DATEADD(MINUTE, 5, dt)
+		FROM cte s
+		WHERE DATEADD(MINUTE, 5, dt) <= '2017-06-01 00:00')
+	INSERT INTO #dates (d)
+	SELECT s.dt
+		FROM cte s
+	OPTION (MAXRECURSION 0)
+
+	;WITH cte AS (
+		SELECT 1 AS dt
+		UNION ALL
+		SELECT 1+dt
+		FROM cte s
+		WHERE 1+dt <= 10)
+	INSERT INTO #ids (i)
+	SELECT s.dt
+		FROM cte s
+	OPTION (MAXRECURSION 0)
+
+	INSERT INTO sandbox.MoiseevTestLarge
+	        ( Date ,
+	          Value01 ,
+	          Value02 ,
+	          Value03 ,
+	          Value04 ,
+	          Value05 ,
+	          Value06 ,
+	          Value07 ,
+	          Value08 ,
+	          Value09 ,
+	          Value10 ,
+	          Value11 ,
+	          Value12 ,
+	          Value13 ,
+	          Value14
+	        )
+	SELECT d.d
+		, CAST(CAST(NEWID() AS VARBINARY) AS INT), CAST(CAST(NEWID() AS VARBINARY) AS INT), CAST(CAST(NEWID() AS VARBINARY) AS INT), CAST(CAST(NEWID() AS VARBINARY) AS INT)
+		, CAST(NEWID() AS NVARCHAR(MAX)), CAST(NEWID() AS NVARCHAR(MAX)), CAST(NEWID() AS NVARCHAR(MAX)), CAST(NEWID() AS NVARCHAR(MAX))
+		, NEWID(), NEWID()
+		, CAST(CAST(NEWID() AS VARBINARY) AS INT), CAST(CAST(NEWID() AS VARBINARY) AS INT), CAST(CAST(NEWID() AS VARBINARY) AS INT), CAST(CAST(NEWID() AS VARBINARY) AS INT)
+	FROM #dates d
+		CROSS JOIN #ids i
+
+	DROP TABLE #dates
+	DROP TABLE #ids
+END
+
+-- Проверка числа записей
+SELECT COUNT(*) FROM sandbox.MoiseevTestLarge WITH(NOLOCK)
+SELECT TOP 100 * FROM sandbox.MoiseevTestLarge
+
+-- Удаление таблицы
+IF 1=0 BEGIN
+	TRUNCATE TABLE sandbox.MoiseevTestLarge
+	DROP TABLE sandbox.MoiseevTestLarge
+END
+\end{lstlisting}
+
+\subsubsection*{Набор данных $D_3$}
+\begin{lstlisting}
+-- Создание таблиц
+IF 1=1 BEGIN
+	CREATE TABLE sandbox.MoiseevTestMany1 (
+		[Id] INT PRIMARY KEY IDENTITY(1,1),
+		[Date] DATETIME2 NOT NULL,
+		[Value01] DECIMAL(18,4) NOT NULL,
+		[Value02] DECIMAL(18,4) NOT NULL,
+		[Value03] DECIMAL(18,4) NOT NULL,
+		[Value04] DECIMAL(18,4) NOT NULL,
+		[Value05] NVARCHAR(MAX) NOT NULL,
+		[Value06] NVARCHAR(MAX) NOT NULL,
+		[Value07] NVARCHAR(MAX) NOT NULL,
+		[Value08] NVARCHAR(MAX) NOT NULL
+	)
+
+	CREATE TABLE sandbox.MoiseevTestMany2 (
+		[Id] INT PRIMARY KEY IDENTITY(1,1),
+		[Many1Id] INT NOT NULL,
+		[Value01] UNIQUEIDENTIFIER NOT NULL,
+		[Value02] UNIQUEIDENTIFIER NOT NULL
+	)
+
+	CREATE TABLE sandbox.MoiseevTestMany3 (
+		[Id] INT PRIMARY KEY IDENTITY(1,1),
+		[Many1Id] INT NOT NULL,
+		[Value01] INT NOT NULL,
+		[Value02] INT NOT NULL,
+		[Value03] INT NOT NULL,
+		[Value04] INT NOT NULL
+	)
+
+	ALTER TABLE sandbox.MoiseevTestMany2 ADD CONSTRAINT MoiseevMany2_FK FOREIGN KEY (Many1Id) REFERENCES sandbox.MoiseevTestMany1(Id)
+	ALTER TABLE sandbox.MoiseevTestMany3 ADD CONSTRAINT MoiseevMany3_FK FOREIGN KEY (Many1Id) REFERENCES sandbox.MoiseevTestMany1(Id)
+	CREATE NONCLUSTERED INDEX IX_MoiseevMany2 ON sandbox.MoiseevTestMany2(Many1Id)
+	CREATE NONCLUSTERED INDEX IX_MoiseevMany3 ON sandbox.MoiseevTestMany3(Many1Id)
+END
+
+-- Заполнение данными
+IF 1=1 BEGIN
+	CREATE TABLE #dates (d DATETIME2)
+	CREATE TABLE #ids (i INT)
+
+	;WITH cte AS (
+		SELECT CAST('2017-01-01 00:00' AS DATETIME2) AS dt
+		UNION ALL
+		SELECT DATEADD(MINUTE, 5, dt)
+		FROM cte s
+		WHERE DATEADD(MINUTE, 5, dt) <= '2017-06-01 00:00')
+	INSERT INTO #dates (d)
+	SELECT s.dt
+		FROM cte s
+	OPTION (MAXRECURSION 0)
+
+	;WITH cte AS (
+		SELECT 1 AS dt
+		UNION ALL
+		SELECT 1+dt
+		FROM cte s
+		WHERE 1+dt <= 10)
+	INSERT INTO #ids (i)
+	SELECT s.dt
+		FROM cte s
+	OPTION (MAXRECURSION 0)
+
+	INSERT INTO sandbox.MoiseevTestMany1
+	        ( Date ,
+	          Value01 ,
+	          Value02 ,
+	          Value03 ,
+	          Value04 ,
+	          Value05 ,
+	          Value06 ,
+	          Value07 ,
+	          Value08
+	        )
+	SELECT d.d
+		, CAST(CAST(NEWID() AS VARBINARY) AS INT), CAST(CAST(NEWID() AS VARBINARY) AS INT), CAST(CAST(NEWID() AS VARBINARY) AS INT), CAST(CAST(NEWID() AS VARBINARY) AS INT)
+		, CAST(NEWID() AS NVARCHAR(MAX)), CAST(NEWID() AS NVARCHAR(MAX)), CAST(NEWID() AS NVARCHAR(MAX)), CAST(NEWID() AS NVARCHAR(MAX))
+	FROM #dates d
+		CROSS JOIN #ids i
+
+	INSERT INTO sandbox.MoiseevTestMany2
+	        ( Many1Id, Value01, Value02 )
+	SELECT m1.Id, NEWID(), NEWID()
+	FROM sandbox.MoiseevTestMany1 m1
+		CROSS JOIN #ids i
+
+	INSERT INTO sandbox.MoiseevTestMany3
+	        ( Many1Id ,
+	          Value01 ,
+	          Value02 ,
+	          Value03 ,
+	          Value04
+	        )
+	SELECT m1.Id, i.i+1, i.i+2, i.i+3, i.i+4
+	FROM sandbox.MoiseevTestMany1 m1
+		CROSS JOIN #ids i
+
+	DROP TABLE #dates
+	DROP TABLE #ids
+END
+
+-- Проверка числа записей
+SELECT COUNT(*) FROM sandbox.MoiseevTestMany1 WITH(NOLOCK)
+SELECT COUNT(*) FROM sandbox.MoiseevTestMany2 WITH(NOLOCK)
+SELECT COUNT(*) FROM sandbox.MoiseevTestMany3 WITH(NOLOCK)
+
+-- Удаление таблиц
+IF 1=0 BEGIN
+	TRUNCATE TABLE sandbox.MoiseevTestMany1
+	TRUNCATE TABLE sandbox.MoiseevTestMany2
+	TRUNCATE TABLE sandbox.MoiseevTestMany3
+	DROP TABLE sandbox.MoiseevTestMany1
+	DROP TABLE sandbox.MoiseevTestMany2
+	DROP TABLE sandbox.MoiseevTestMany3
+END
+\end{lstlisting}
